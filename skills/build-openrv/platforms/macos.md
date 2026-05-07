@@ -42,11 +42,11 @@ The prereq checker probes this with `probe_app_management_tcc()`. If it reports 
 
 ## Environment gotchas
 
-These are the things that break `rvbootstrap` on otherwise-clean macOS setups. Check `MEMORY.md` if a user-specific note exists; the items below are general:
+These are the things that break `rvbootstrap` on otherwise-clean macOS setups. The `run-bootstrap.sh` wrapper handles the SDK and deployment-target items automatically; the others are surfaced for users running `source rvcmds.sh` by hand.
 
-- **`SDKROOT`**: Should point at Xcode's SDK, not the CLT SDK. If `xcrun --show-sdk-path` returns a CLT path, the user has CLT-only or has CLT selected via `xcode-select`. Run `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`.
-- **`MACOSX_DEPLOYMENT_TARGET`**: leave unset. OpenRV's CMake decides. Overriding it produces "linked against newer SDK" warnings or outright link failures.
-- **`SSL_CERT_FILE`**: if set system-wide for proxy/SSL inspection, *some* OpenRV third-party builds (notably anything using Python's `ssl` module via `urllib`) will pick it up correctly, but Python builds from source can fail if the file path becomes unreadable mid-build. If you see SSL errors during the third-party fetch phase, double-check the CA bundle path is still valid.
+- **Xcode/CLT SDK split**: even when `xcode-select -p` correctly points at `/Applications/Xcode.app/Contents/Developer`, `xcrun --show-sdk-path` (without `-sdk macosx`) can resolve to `/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk`. shiboken/clang then pick up CLT libc++ headers that reference clang intrinsics (`__builtin_ctzg`, `__builtin_clzg`, etc.) missing from the toolchain bundled with the selected SDK, and **every PySide6 binding compile fails**. The build dies tens of minutes in with hundreds of identical "no member named '__builtin_ctzg'" errors. `run-bootstrap.sh` exports `DEVELOPER_DIR` and `SDKROOT` to Xcode's paths automatically; the prereq checker reports this under `xcode_sdk_consistency`. To fix manually: `export DEVELOPER_DIR="$(xcode-select -p)"; export SDKROOT="$(xcrun -sdk macosx --show-sdk-path)"`.
+- **`MACOSX_DEPLOYMENT_TARGET`**: leave unset. OpenRV's CMake decides. Overriding it produces "linked against newer SDK" warnings or outright link failures. `run-bootstrap.sh` unsets it.
+- **`SSL_CERT_FILE`**: if set system-wide for proxy/SSL inspection, *some* OpenRV third-party builds (notably anything using Python's `ssl` module via `urllib`) will pick it up correctly, but Python builds from source can fail if the file path becomes unreadable mid-build. If you see SSL errors during the third-party fetch phase, double-check the CA bundle path is still valid. Prefer `REQUESTS_CA_BUNDLE` and `CURL_CA_BUNDLE` over `SSL_CERT_FILE` when possible.
 - **Netskope / corporate proxies**: confirm `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, or `SSL_CERT_FILE` is exported and points to the corporate CA bundle before launching Claude Code.
 
 ## Build quirks

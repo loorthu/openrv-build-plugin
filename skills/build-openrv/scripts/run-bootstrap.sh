@@ -69,6 +69,23 @@ export RV_VFX_PLATFORM="$vfx_year"
 [ -n "$qt_home" ] && export QT_HOME="$qt_home"
 export INIT_BUILD_TYPE="$build_type"
 
+# macOS SDK consistency. If full Xcode is selected via xcode-select but xcrun
+# (without -sdk macosx) resolves to the CommandLineTools SDK, shiboken/clang
+# pick up CLT headers that may reference clang intrinsics (e.g. __builtin_ctzg)
+# missing from the toolchain bundled with the chosen SDK, and PySide6 binding
+# compiles fail. Force DEVELOPER_DIR and SDKROOT to Xcode's, and unset
+# MACOSX_DEPLOYMENT_TARGET so OpenRV's CMake decides the deployment target.
+if [ "$(uname -s)" = "Darwin" ]; then
+  if xcode_dev="$(xcode-select -p 2>/dev/null)" && [ -n "$xcode_dev" ] \
+     && [ "${xcode_dev#*Xcode.app/}" != "$xcode_dev" ]; then
+    export DEVELOPER_DIR="$xcode_dev"
+    if sdk_path="$(xcrun -sdk macosx --show-sdk-path 2>/dev/null)" && [ -n "$sdk_path" ]; then
+      export SDKROOT="$sdk_path"
+    fi
+  fi
+  unset MACOSX_DEPLOYMENT_TARGET
+fi
+
 # Aliases (rvbootstrap, rvsetup, rvcfg, rvbuild, rvmk, rvrelease, rvdebug) are
 # defined in rvcmds.sh and not expanded in non-interactive bash subshells
 # without this. zsh expands aliases in non-interactive subshells by default,
@@ -80,6 +97,8 @@ log="$openrv_dir/build.log"
 echo "[run-bootstrap] cwd=$openrv_dir"
 echo "[run-bootstrap] RV_VFX_PLATFORM=$RV_VFX_PLATFORM"
 [ -n "${QT_HOME:-}" ] && echo "[run-bootstrap] QT_HOME=$QT_HOME"
+[ -n "${DEVELOPER_DIR:-}" ] && echo "[run-bootstrap] DEVELOPER_DIR=$DEVELOPER_DIR"
+[ -n "${SDKROOT:-}" ] && echo "[run-bootstrap] SDKROOT=$SDKROOT"
 echo "[run-bootstrap] INIT_BUILD_TYPE=$INIT_BUILD_TYPE"
 echo "[run-bootstrap] full output also being written to $log"
 echo "[run-bootstrap] ----- sourcing rvcmds.sh -----"

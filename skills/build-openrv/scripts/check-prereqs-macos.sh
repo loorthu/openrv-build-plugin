@@ -125,6 +125,25 @@ else
   emit "xcode" "16.4" "__NULL__" "manual-only" "Install Xcode from the App Store (requires Apple ID)"
 fi
 
+# Xcode SDK consistency. Even when xcode-select points at full Xcode, xcrun
+# without -sdk macosx may resolve to the CLT SDK at
+# /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk. shiboken/clang then pick
+# up CLT libc++ headers referencing clang intrinsics (e.g. __builtin_ctzg)
+# missing from the toolchain bundled with the selected SDK, and PySide6
+# binding compiles fail far into the build. run-bootstrap.sh auto-fixes this
+# by exporting DEVELOPER_DIR and SDKROOT, but we surface it here so the user
+# (or anyone running rvcmds.sh by hand) knows about it.
+xcode_dev_path="$(xcode-select -p 2>/dev/null || true)"
+if [ -n "$xcode_dev_path" ] && [ "${xcode_dev_path#*Xcode.app/}" != "$xcode_dev_path" ]; then
+  default_sdk="$(xcrun --show-sdk-path 2>/dev/null || true)"
+  if [ -n "$default_sdk" ] && [ "${default_sdk#*CommandLineTools}" != "$default_sdk" ]; then
+    emit "xcode_sdk_consistency" "" "split:$default_sdk" "auto-installable" \
+      "SDK split detected: xcrun resolves to CLT SDK while Xcode is selected. run-bootstrap.sh will auto-fix by exporting DEVELOPER_DIR and SDKROOT. To fix manually: export DEVELOPER_DIR=\"\$(xcode-select -p)\"; export SDKROOT=\"\$(xcrun -sdk macosx --show-sdk-path)\""
+  else
+    emit "xcode_sdk_consistency" "" "ok" "installed" "Xcode SDK consistent ($default_sdk)"
+  fi
+fi
+
 # Homebrew
 brew_v="$(ver_brew)"
 if [ -n "$brew_v" ]; then
