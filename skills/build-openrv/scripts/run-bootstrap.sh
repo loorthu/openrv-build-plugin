@@ -86,6 +86,47 @@ if [ "$(uname -s)" = "Darwin" ]; then
   unset MACOSX_DEPLOYMENT_TARGET
 fi
 
+# macOS App Management TCC pre-flight. The build dies ~99% in with
+# "Operation not permitted" from install_name_tool when the terminal hosting
+# this session lacks App Management permission. Failing fast here saves 1-2
+# hours of wasted compute. See scripts/probe-tcc-macos.sh.
+if [ "$(uname -s)" = "Darwin" ]; then
+  _self_dir="$(cd "$(dirname "$0")" && pwd)"
+  tcc_state="$(bash "$_self_dir/probe-tcc-macos.sh" "$openrv_dir" 2>/dev/null)"
+  case "$tcc_state" in
+    blocked)
+      terminal_app="$(bash "$_self_dir/identify-terminal-macos.sh" 2>/dev/null)"
+      [ -z "$terminal_app" ] || [ "$terminal_app" = "unknown" ] && terminal_app="your terminal app"
+      cat >&2 <<EOF
+
+[run-bootstrap] STOPPING: App Management TCC is blocking install_name_tool.
+
+The build would die ~1-2 hours in with "Operation not permitted" errors when
+assembling RV.app. Refusing to start now to save you that time.
+
+To fix:
+  1. Open System Settings → Privacy & Security → App Management
+  2. Toggle ON: $terminal_app
+     (use the + button if it's not in the list; pick it from /Applications)
+  3. FULLY QUIT (Cmd-Q, not just close the window) and relaunch BOTH:
+       - $terminal_app
+       - Claude Code
+     TCC grants do not apply to already-running processes — this step is
+     non-obvious and is the most common reason the fix appears not to work.
+  4. Re-run this command.
+
+EOF
+      exit 3
+      ;;
+    skipped)
+      echo "[run-bootstrap] warning: could not probe TCC App Management; build may fail late if the permission is not granted." >&2
+      ;;
+    ok)
+      echo "[run-bootstrap] App Management TCC: ok"
+      ;;
+  esac
+fi
+
 # Aliases (rvbootstrap, rvsetup, rvcfg, rvbuild, rvmk, rvrelease, rvdebug) are
 # defined in rvcmds.sh and not expanded in non-interactive bash subshells
 # without this. zsh expands aliases in non-interactive subshells by default,

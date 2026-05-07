@@ -22,16 +22,27 @@ The Command Line Tools are auto-installable via `xcode-select --install`. The fu
 
 ### App Management TCC grant
 
-This is the one most likely to confuse users. Symptom: build runs for ~30-90 minutes, then near 99% completion `install_name_tool` fails inside an `.app` bundle with a permission error that looks like a linker warning. The actual cause is macOS's App Management TCC restriction.
+This is the one most likely to confuse users. **Failure signature:** the build runs for 1-2 hours, gets ~99% of the way through, then dies with hundreds of identical errors like:
 
-The prereq checker probes this with `probe_app_management_tcc()`. If it reports `blocked`, the user **must** grant their terminal (Terminal.app, iTerm2, Ghostty, VS Code, whatever spawned this Claude Code session) the App Management permission **before** building. There is no programmatic workaround.
+```
+install_name_tool: can't open input file: .../RV.app/Contents/MacOS/...dylib for writing (Operation not permitted)
+```
 
-**Walk the user through this:**
+The path being modified is in the user's home directory and they own the file — but the OS still denies the write. This is **not** Unix permissions. It is macOS's App Management TCC restriction: any process that tries to modify a file inside any `.app` bundle is gated on whether the app spawning the calling process has been granted App Management permission, regardless of file ownership.
 
-1. Identify the terminal app spawning this session. If you can't tell, ask them.
-2. In auto-open mode: `scripts/open-installer.sh "x-apple.systempreferences:com.apple.preference.security?Privacy_AppManagement"`.
-3. Tell them: "In System Settings → Privacy & Security → App Management, toggle ON the entry for [their terminal app]. If it's not in the list, click the + and add it from /Applications. You may have to enter your password."
-4. After they confirm, re-run `check-prereqs-macos.sh` and check the `app_management_tcc` record. It should report `ok`. If it still reports `blocked`, the most common cause is that the user toggled a different app or that the change didn't take effect — they may need to fully quit and relaunch the terminal (and Claude Code) for the new TCC entry to apply. Tell them so.
+**The plugin handles this in three places:**
+
+1. `scripts/probe-tcc-macos.sh` — produces a realistic synthetic `.app` (with proper `Info.plist` and LaunchServices registration) and tries `install_name_tool` on a dylib inside it. If a previous build attempt produced `_build/stage/app/RV.app`, the probe falls through to a no-op `install_name_tool -id` against an actual dylib in that bundle, which is the most reliable possible probe. The earlier bare-directory probe gave false-passes because TCC didn't classify it as an app.
+2. `scripts/identify-terminal-macos.sh` — walks up the process tree to find the outermost `.app` ancestor, so the install_hint can name the specific terminal (`Ghostty.app`, `Terminal.app`, `Visual Studio Code.app`) instead of vague "your terminal".
+3. `scripts/run-bootstrap.sh` — runs the probe as a pre-flight gate before sourcing `rvcmds.sh`. If TCC is blocking, the wrapper exits with code 3 and a clear actionable message instead of starting a doomed multi-hour build.
+
+**Walking the user through the fix:**
+
+1. The probe will tell you which app to grant permission to. It's named in the install_hint, e.g. `Toggle ON: Ghostty.app`.
+2. In auto-open mode: `scripts/open-installer.sh "x-apple.systempreferences:com.apple.preference.security?Privacy_AppManagement"` opens the right pane.
+3. Tell the user: "In System Settings → Privacy & Security → App Management, toggle ON the entry for [the named app]. If it's not in the list, click the + and add it from /Applications. You may have to enter your Mac password."
+4. **Critical relaunch step:** TCC grants do not apply to already-running processes. The user MUST fully quit (Cmd-Q) and relaunch BOTH the terminal AND Claude Code. Just closing the window is not enough. This is the second-most-common reason the fix appears not to work.
+5. After relaunch, re-run `check-prereqs-macos.sh` to verify `app_management_tcc` reports `ok`. If still `blocked`, ask whether they actually quit the apps (Cmd-Tab → see if either is still in the dock with a dot under it).
 
 ## Auto-installable items, pre-flight notes
 

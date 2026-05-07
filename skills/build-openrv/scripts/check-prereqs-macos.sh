@@ -74,37 +74,18 @@ ver_qt() {
   done
 }
 
-# Probe whether `install_name_tool` can edit a Mach-O without TCC blocking us.
-# We don't actually need TCC for plain Mach-O edits; but for editing dylibs
-# inside a *.app bundle the App Management permission is required. We probe by
-# creating a throwaway dylib in a fake .app and trying to set its rpath. If
-# this fails with a TCC denial, return "blocked".
-probe_app_management_tcc() {
-  local tmp dylib_src dylib appdir
-  tmp="$(mktemp -d 2>/dev/null)" || { echo "unknown"; return; }
-  appdir="$tmp/probe.app/Contents/MacOS"
-  mkdir -p "$appdir"
-  dylib_src="$tmp/probe.c"
-  dylib="$appdir/libprobe.dylib"
-  printf 'int probe(){return 0;}\n' > "$dylib_src"
-  # Compile a minimal dylib (requires CLT). If CLT is absent, we can't probe.
-  if ! command -v clang >/dev/null 2>&1; then
-    echo "skipped"
-    rm -rf "$tmp"
-    return
-  fi
-  if ! clang -dynamiclib -o "$dylib" "$dylib_src" 2>/dev/null; then
-    echo "skipped"
-    rm -rf "$tmp"
-    return
-  fi
-  # Attempt the kind of operation OpenRV does during build
-  if install_name_tool -id "@rpath/libprobe.dylib" "$dylib" 2>/dev/null; then
-    echo "ok"
-  else
-    echo "blocked"
-  fi
-  rm -rf "$tmp"
+# Locate sibling helper scripts. BASH_SOURCE may be unset if this script is
+# invoked via `bash <name>` rather than execed directly; fall back to $0.
+_self_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+
+# Find OpenRV checkout from CWD (same logic as detect-platform.sh) so the TCC
+# probe can fall through to the real RV.app when it exists.
+_find_openrv_dir() {
+  local d="$(pwd)"
+  while [ "$d" != "/" ] && [ -n "$d" ]; do
+    if [ -f "$d/rvcmds.sh" ]; then echo "$d"; return; fi
+    d="$(dirname "$d")"
+  done
 }
 
 # --- emit one record per requirement --------------------------------------
@@ -214,16 +195,34 @@ else
   emit "qt" "6.5.3" "__NULL__" "auto-installable" "Headless install via aqtinstall: install-qt.sh"
 fi
 
-# App Management TCC probe
-tcc_state="$(probe_app_management_tcc)"
+# App Management TCC probe. Uses the realistic-bundle probe (with Info.plist
+# + LaunchServices registration) and falls through to a no-op install_name_tool
+# against an actual dylib inside _build/stage/app/RV.app if a prior build
+# attempt left one there — the latter is the most reliable possible probe.
+_openrv_dir_for_probe="$(_find_openrv_dir)"
+tcc_state="$(bash "$_self_dir/probe-tcc-macos.sh" "$_openrv_dir_for_probe" 2>/dev/null)"
+terminal_app="$(bash "$_self_dir/identify-terminal-macos.sh" 2>/dev/null)"
+[ -z "$terminal_app" ] && terminal_app="unknown"
+
+if [ -n "$_openrv_dir_for_probe" ] && [ -d "$_openrv_dir_for_probe/_build/stage/app/RV.app" ]; then
+  _probe_what="real RV.app dylib in $_openrv_dir_for_probe"
+else
+  _probe_what="realistic synthetic bundle"
+fi
+
 case "$tcc_state" in
   ok)
-    emit "app_management_tcc" "" "ok" "installed" "App Management permission OK"
+    emit "app_management_tcc" "" "ok" "installed" "App Management permission OK (probed against $_probe_what)"
     ;;
   blocked)
-    emit "app_management_tcc" "" "blocked" "manual-only" "Grant App Management permission to your terminal in System Settings -> Privacy & Security -> App Management"
+    if [ "$terminal_app" != "unknown" ]; then
+      hint="App Management TCC is BLOCKING install_name_tool. The build will fail near 99% with 'Operation not permitted' when assembling RV.app. Fix: System Settings → Privacy & Security → App Management → toggle ON $terminal_app. Then FULLY QUIT (Cmd-Q) and relaunch BOTH $terminal_app AND Claude Code — TCC grants do not apply to already-running processes."
+    else
+      hint="App Management TCC is BLOCKING install_name_tool. The build will fail near 99% with 'Operation not permitted'. Fix: System Settings → Privacy & Security → App Management → toggle ON your terminal app (could not auto-detect which). Then FULLY QUIT and relaunch BOTH your terminal AND Claude Code — TCC grants do not apply to already-running processes."
+    fi
+    emit "app_management_tcc" "" "blocked" "manual-only" "$hint"
     ;;
   *)
-    emit "app_management_tcc" "" "skipped" "manual-only" "Could not probe App Management TCC (no clang); grant permission to your terminal under System Settings -> Privacy & Security -> App Management before building"
+    emit "app_management_tcc" "" "skipped" "manual-only" "Could not probe App Management TCC (no clang or no writable tmp). To be safe, grant App Management permission to ${terminal_app:-your terminal app} in System Settings → Privacy & Security → App Management before building, and FULLY QUIT and relaunch both terminal and Claude Code afterward."
     ;;
 esac
