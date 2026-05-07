@@ -19,7 +19,7 @@ You do **not** need to know what "compile from source" means, or where to downlo
   - **Rocky Linux 8 or 9** (or RHEL): an account that can use `sudo` (knows the admin password).
   - **Windows 10 or 11**: install **MSYS2** first from https://www.msys2.org/, then launch Claude Code from inside the **MSYS2 MinGW64** shell (`C:\msys64\mingw64.exe`). Sorry — this one step we cannot automate, because Claude Code itself has to be running inside that shell.
 
-### Three commands
+### Four commands
 
 Open Claude Code. In the chat, type each of these one at a time and press Enter:
 
@@ -37,7 +37,13 @@ Open Claude Code. In the chat, type each of these one at a time and press Enter:
 
 (Yes, `openrv-build@openrv-build` looks odd. The first is the plugin name; the second is the marketplace name. They happen to be the same.)
 
-**3. Start the guided build.**
+**3. Reload plugins.** Required after install — without this, the `/openrv:*` commands won't show up.
+
+```
+/reload-plugins
+```
+
+**4. Start the guided build.**
 
 ```
 /openrv:build
