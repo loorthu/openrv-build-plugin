@@ -36,16 +36,33 @@ Ask the user once, near the start. Default to **friendly walkthrough** if they d
 
 ## The flow
 
-### 1. Pick a version
+### 1. Pick the build target — TWO questions, always asked
+
+You must ask BOTH of these at the start, **even if the user is already inside an OpenRV checkout**. Don't skip the questions just because a checkout exists — they may want a different ref or a different VFX Platform year than last time.
+
+**1a. Which OpenRV ref to build?**
 
 Run `scripts/pick-openrv-version.sh list`. Show the user:
 - Current checkout (if any) and its ref.
 - Up to 10 recent release tags.
 - The `main` branch as an option.
 
-Ask which to build. If the CWD is already an OpenRV checkout at the requested ref, skip prepare. Otherwise run `scripts/pick-openrv-version.sh prepare <ref> [<target_dir>]` and `cd` into the printed path for the rest of the session.
+Ask which to build. If the CWD is already an OpenRV checkout at the requested ref, skip prepare. Otherwise run `scripts/pick-openrv-version.sh prepare <ref> [<target_dir>]` and `cd` into the printed path for the rest of the session. If they want a target directory other than CWD/`OpenRV`, ask and pass it as the third arg.
 
-If they want a target directory other than CWD/`OpenRV`, ask and pass it as the third arg.
+**1b. Which VFX Platform year?**
+
+OpenRV's `rvbootstrap` requires `RV_VFX_PLATFORM` to be set to one of `CY2023`, `CY2024`, `CY2025`, or `CY2026`. If you don't set it before running bootstrap, the script will prompt interactively — and if you ran it with stdin disconnected (background, `<&-`, etc.) it will spin forever printing the menu.
+
+The choice determines which Qt version the build needs, so the prereq check (step 3) must know it:
+
+| VFX year | Qt requirement | Notes |
+|----------|----------------|-------|
+| CY2023   | Qt 5.15        | Legacy. Don't recommend unless the user has a specific reason. |
+| CY2024   | Qt 6.5.3       | Stable. Default for v3.0.x and earlier. |
+| CY2025   | Qt 6.5.3       | Current default for v3.1.x / v3.2.x. **Recommend this unless told otherwise.** |
+| CY2026   | Qt 6.8.x       | Newest. Requires Qt 6.8 (the install scripts default to 6.5.3 — pass `--version 6.8.x` to `install-qt.sh` if user picks CY2026). |
+
+Ask the user which year. If they don't know, default to CY2025. Remember the choice for steps 3 (Qt detection) and 6 (export `RV_VFX_PLATFORM`).
 
 ### 2. Detect the platform
 
@@ -70,6 +87,8 @@ Show counts: "12 installed, 8 to auto-install, 2 need manual steps." Then ask to
 
 Run `scripts/install-deps-<os>.sh` (with `--elevated` if and only if the user picked autonomous mode). In friendly/auto-open modes, the script prompts per step on its own — let it. In autonomous mode it runs straight through; relay its stdout to the user as it streams.
 
+**Qt version note:** the bundled `install-qt.sh` defaults to Qt 6.5.3, which matches CY2024/CY2025. If the user picked CY2026 in step 1b, run `install-deps` with `--only` arguments to install everything *except* Qt, then call `install-qt.sh --version 6.8.1` directly and remember the printed `QT_HOME` for step 6. If they picked CY2023 (legacy), `install-qt.sh` does not cover Qt 5 — tell the user they need to install Qt 5.15 by hand from https://www.qt.io/offline-installers; this is the one VFX-year combination we don't automate.
+
 If a single install fails, stop. Show the actual stderr. Ask the user what to do — usually it's a network/proxy issue (CA bundle), a sudo prompt timing out, or a flaky upstream. Do not retry blindly.
 
 After install completes, re-run the prereq checker. Anything still in `auto-installable` means an install genuinely failed — investigate before moving on.
@@ -85,16 +104,26 @@ For each `manual-only` requirement, look up the playbook in `platforms/<os>.md` 
 
 ### 6. Bootstrap
 
-Once the prereq checker reports zero `auto-installable` and zero `manual-only`, you're ready. From the OpenRV checkout directory:
+Once the prereq checker reports zero `auto-installable` and zero `manual-only`, you're ready.
+
+**Critical rules — violating any of these will produce a confused, broken run:**
+
+1. **`cd` into the OpenRV checkout first.** `rvcmds.sh` is sourced relative to CWD. If you don't `cd` (or pass it via `bash -c 'cd <dir> && ...'`), `source ./rvcmds.sh` errors out.
+2. **Export `RV_VFX_PLATFORM` before sourcing `rvcmds.sh`.** Use the year from step 1b. Without this, `rvcmds.sh` will print a `select` menu on stdout and block on stdin reading 1/2/3/4.
+3. **Run in the FOREGROUND.** Do NOT background it (`&`), do NOT redirect stdout to a file unless you also `tee` so streaming output is visible, do NOT close stdin. `rvbootstrap` may emit additional prompts (license accepts, branch confirmations on dirty trees) and a stranded stdin produces an infinite-loop log file.
+4. **Do not run it in a Bash tool with `run_in_background: true`.** Same reason as (3). If the user wants a log, use `tee`:
+
+The exact command, assembled from the user's choices in step 1:
 
 ```bash
-source ./rvcmds.sh
-rvbootstrap
+cd <openrv_dir> && export RV_VFX_PLATFORM=CY<YEAR> && source ./rvcmds.sh && rvbootstrap 2>&1 | tee build.log
 ```
 
-This is the OpenRV build wrapper. It handles: configure, dependency download/build, OpenRV build, and packaging. It is verbose and slow; tail its output and surface meaningful events (started X, finished X, failed at Y) rather than every line. Typical wall-clock is 30-90 minutes on a warm cache, several hours from cold.
+Substitute `<openrv_dir>` with the absolute path from step 1a, and `CY<YEAR>` with the choice from step 1b.
 
-If `rvbootstrap` fails, the actionable info is almost always in the last 50-100 lines of its output. Show those, name the failing component, and consult `platforms/<os>.md` for known gotchas before suggesting a retry.
+This is the OpenRV build wrapper. It handles: configure, dependency download/build, OpenRV build, and packaging. It is verbose and slow; surface meaningful events (started X, finished X, failed at Y) rather than every line. Typical wall-clock is 30-90 minutes on a warm cache, several hours from cold.
+
+If `rvbootstrap` fails, the actionable info is almost always in the last 50-100 lines of its output (or `build.log`). Show those, name the failing component, and consult `platforms/<os>.md` for known gotchas before suggesting a retry.
 
 ### 7. Verify
 
