@@ -1,0 +1,17 @@
+{
+  "name": "openrv-build",
+  "version": "0.1.0",
+  "description": "Guided multi-platform build of OpenRV (macOS, Linux, Windows). Detects your OS, installs as many dependencies as it can, and walks you through anything that needs a human.",
+  "author": {
+    "name": "OpenRV Build Plugin contributors"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/AcademySoftwareFoundation/OpenRV",
+  "keywords": [
+    "openrv",
+    "build",
+    "compile",
+    "multi-platform",
+    "vfx"
+  ]
+}

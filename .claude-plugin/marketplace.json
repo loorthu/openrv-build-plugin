@@ -1,0 +1,16 @@
+{
+  "name": "openrv-build",
+  "owner": {
+    "name": "OpenRV Build Plugin contributors"
+  },
+  "plugins": [
+    {
+      "name": "openrv-build",
+      "source": "./",
+      "description": "Guided multi-platform build of OpenRV (macOS, Linux, Windows). Detects your OS, installs as many dependencies as it can, and walks you through anything that needs a human.",
+      "version": "0.1.0",
+      "category": "build-tools",
+      "keywords": ["openrv", "build", "compile", "vfx"]
+    }
+  ]
+}
