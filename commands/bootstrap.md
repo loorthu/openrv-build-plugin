@@ -6,7 +6,7 @@ Escape hatch for users who already have everything installed and just want to ru
 
 1. Run `${CLAUDE_PLUGIN_ROOT}/skills/build-openrv/scripts/detect-platform.sh` and read `openrv_dir` from the JSON. If it's empty, stop: the user is not inside an OpenRV checkout. Tell them to `cd` into one or run `/openrv-build:build` instead.
 2. Ask which VFX Platform year (`CY2023`, `CY2024`, `CY2025`, `CY2026`). If they don't know, default to `CY2025`. **Do not skip this** — `rvcmds.sh` will block on its `select` menu otherwise.
-3. Call the wrapper. **Foreground only — do NOT pass `run_in_background: true`.** The wrapper already tees output to `build.log` inside the OpenRV checkout.
+3. Call the wrapper with `run_in_background: true`. Cold builds take 2-4 hours and would be killed by the Bash tool's 10-minute foreground timeout. The wrapper redirects stdin from `/dev/null` and pre-answers known prompts, so backgrounding is the safe mode. The script tees output to `build.log` inside the OpenRV checkout.
 
    ```bash
    ${CLAUDE_PLUGIN_ROOT}/skills/build-openrv/scripts/run-bootstrap.sh <openrv_dir> CY<YEAR>

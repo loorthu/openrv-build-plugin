@@ -147,7 +147,15 @@ echo "[run-bootstrap] ----- sourcing rvcmds.sh -----"
 # Source rvcmds.sh and immediately invoke rvbootstrap. We pipe the combined
 # output through tee so the user sees it AND we keep a log on disk. PIPESTATUS
 # is used so the exit status reflects rvbootstrap's status, not tee's.
-{ set +u; source ./rvcmds.sh && rvbootstrap; } 2>&1 | tee "$log"
+#
+# Stdin is redirected from /dev/null. All known interactive prompts in
+# rvcmds.sh are pre-answered via env vars (RV_VFX_PLATFORM above), so this
+# should never be reached. If upstream adds a new prompt, /dev/null gives an
+# immediate EOF and the loop terminates fast — better than blocking forever
+# on a stranded stdin in a backgrounded shell. This makes the wrapper safe to
+# run with run_in_background: true (which is required because rvbootstrap can
+# take 2-4 hours and Claude Code's Bash tool has a 10-minute foreground cap).
+{ set +u; source ./rvcmds.sh && rvbootstrap; } </dev/null 2>&1 | tee "$log"
 status=${PIPESTATUS[0]}
 
 echo

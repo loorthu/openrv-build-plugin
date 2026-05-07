@@ -11,8 +11,8 @@ You are guiding a user through compiling OpenRV. This is a long process (~30-90 
 
 These are the mistakes that have actually happened in past runs of this skill. Read them now, before you run anything.
 
-1. **Never `run_in_background: true` on `rvbootstrap`.** Not even for "streaming." Backgrounded shells have their stdin disconnected; `rvcmds.sh` is interactive (it prompts for VFX year, branch confirms on dirty trees, etc.) and a backgrounded prompt becomes an infinite-loop log file that fills disk. Always foreground.
-2. **Never assemble the bootstrap command by hand.** Use `scripts/run-bootstrap.sh <openrv_dir> <CY_YEAR>` (see step 6). The wrapper handles `cd`, `RV_VFX_PLATFORM` export, alias expansion (`rvbootstrap` is a bash/zsh alias, not a function — it does not expand in non-interactive bash without `shopt -s expand_aliases`), foreground execution, and logging. If you find yourself writing `bash -c 'source ./rvcmds.sh && rvbootstrap'`, stop — it will fail.
+1. **Never run raw `bash -c '... rvbootstrap'` — go through `scripts/run-bootstrap.sh` only.** The wrapper handles `cd`, `RV_VFX_PLATFORM` export, alias expansion (`rvbootstrap` is a bash/zsh alias, not a function — it does not expand in non-interactive bash without `shopt -s expand_aliases`), stdin redirection from `/dev/null`, the macOS SDK fix, the TCC pre-flight, and logging via `tee`. If you find yourself writing `bash -c 'source ./rvcmds.sh && rvbootstrap'`, stop — it will fail.
+2. **Background the wrapper, do not foreground it.** `rvbootstrap` cold-builds for 2-4 hours; Claude Code's Bash tool foreground timeout is 10 minutes, which would `SIGKILL` the build mid-third-party-fetch. Pass `run_in_background: true` when invoking `run-bootstrap.sh`. The wrapper is built for this — it redirects stdin from `/dev/null` and pre-answers all known interactive prompts, so a backgrounded run cannot get stuck on `rvcmds.sh`'s `select` menu.
 3. **Never pipe answers to interactive prompts** (`echo "2" | ...`). The menu order can change. Always set the corresponding env var (`RV_VFX_PLATFORM=CY2024`) so the prompt is skipped entirely.
 4. **Never run anything without the user's checkout dir as CWD.** If you don't `cd`, `source ./rvcmds.sh` errors. The wrapper does this for you; if you bypass the wrapper, you must do it yourself.
 5. **Always ask both step-1 questions** even if the user is already inside an OpenRV checkout. They may want a different ref or VFX year than last time.
@@ -117,7 +117,7 @@ For each `manual-only` requirement, look up the playbook in `platforms/<os>.md` 
 
 Once the prereq checker reports zero `auto-installable` and zero `manual-only`, you're ready.
 
-**Call the wrapper script. Do not assemble the bash invocation by hand.** The five mistakes the model has historically made (no `cd`, missing `RV_VFX_PLATFORM`, backgrounded, alias-not-expanded, prompt-piped) are all handled by `scripts/run-bootstrap.sh`. Your job is to call it with the right arguments.
+**Call the wrapper script. Do not assemble the bash invocation by hand.** The mistakes the model has historically made (no `cd`, missing `RV_VFX_PLATFORM`, alias-not-expanded, prompt-piped, stranded stdin) are all handled by `scripts/run-bootstrap.sh`. Your job is to call it with the right arguments.
 
 Arguments:
 1. `<openrv_dir>` — the absolute path from step 1a.
@@ -125,15 +125,21 @@ Arguments:
 3. `<qt_home>` (optional) — only pass this if you installed Qt 6.8 separately for CY2026 (see step 4 Qt note). Otherwise leave it off; the script lets `rvcmds.sh` find Qt at the default location.
 4. `<build_type>` (optional) — `Release` (default) or `Debug`.
 
-Invoke it. **Foreground only — do not pass `run_in_background: true` to the Bash tool.** If you want to give the user a log, the script already tees to `<openrv_dir>/build.log`; you don't need to add your own redirect.
+**Invoke it with `run_in_background: true`.** Cold builds take 2-4 hours; foreground would be SIGKILL'd at the Bash tool's 10-minute timeout. The wrapper redirects stdin from `/dev/null` and pre-answers all known prompts, so backgrounding is the safe and correct mode. The script tees to `<openrv_dir>/build.log`; you don't need to add your own redirect.
 
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/skills/build-openrv/scripts/run-bootstrap.sh <openrv_dir> CY<YEAR>
 ```
 
-This is the OpenRV build wrapper. It handles: configure, dependency download/build, OpenRV build, and packaging. It is verbose and slow; surface meaningful events (started X, finished X, failed at Y) rather than every line. Typical wall-clock is 30-90 minutes on a warm cache, several hours from cold.
+While the wrapper runs, do **not** poll on a fixed schedule. Use Claude Code's monitoring patterns (BashOutput / Monitor) to surface meaningful events from the streaming output. Look for these phase markers:
+- `Configuring done` / `Generating done` — CMake configure succeeded.
+- `Building NativePython3.11/Boost/OpenSSL/...` — third-party deps phase. Slow.
+- `[N/M] Building CXX object ...` — main OpenRV compile. Most of the wall time.
+- `Linking CXX shared library ... .dylib` — linking phase, near the end.
+- `Setting install name for ... .app/Contents/MacOS/...` — bundle assembly. **If this fails on macOS, see TCC notes in `platforms/macos.md`.**
+- `[run-bootstrap] rvbootstrap succeeded` — done.
 
-If `run-bootstrap.sh` exits non-zero, the actionable info is in `<openrv_dir>/build.log` (the script printed the path on exit). Show the last 50-100 lines, name the failing component, and consult `platforms/<os>.md` for known gotchas before suggesting a retry. For a quick triage, the user can also run `rverrsummary` inside an interactive shell after `cd <openrv_dir> && source ./rvcmds.sh`.
+If the wrapper exits non-zero (the harness will surface this when the background job completes), the actionable info is in `<openrv_dir>/build.log`. Show the last 50-100 lines, name the failing component, and consult `platforms/<os>.md` for known gotchas before suggesting a retry. For a quick triage, the user can also run `rverrsummary` inside an interactive shell after `cd <openrv_dir> && source ./rvcmds.sh`.
 
 ### 7. Verify
 
