@@ -7,13 +7,23 @@ description: Guide a user through compiling OpenRV from source on macOS, Rocky L
 
 You are guiding a user through compiling OpenRV. This is a long process (~30-90 minutes wall clock once dependencies are in place; first-time setup can be several hours on a clean machine). Most users invoking this skill are not C++ build experts. Be patient, explain what each step does in plain language, and never silently skip a check.
 
+## STOP — read before any tool calls
+
+These are the mistakes that have actually happened in past runs of this skill. Read them now, before you run anything.
+
+1. **Never `run_in_background: true` on `rvbootstrap`.** Not even for "streaming." Backgrounded shells have their stdin disconnected; `rvcmds.sh` is interactive (it prompts for VFX year, branch confirms on dirty trees, etc.) and a backgrounded prompt becomes an infinite-loop log file that fills disk. Always foreground.
+2. **Never assemble the bootstrap command by hand.** Use `scripts/run-bootstrap.sh <openrv_dir> <CY_YEAR>` (see step 6). The wrapper handles `cd`, `RV_VFX_PLATFORM` export, alias expansion (`rvbootstrap` is a bash/zsh alias, not a function — it does not expand in non-interactive bash without `shopt -s expand_aliases`), foreground execution, and logging. If you find yourself writing `bash -c 'source ./rvcmds.sh && rvbootstrap'`, stop — it will fail.
+3. **Never pipe answers to interactive prompts** (`echo "2" | ...`). The menu order can change. Always set the corresponding env var (`RV_VFX_PLATFORM=CY2024`) so the prompt is skipped entirely.
+4. **Never run anything without the user's checkout dir as CWD.** If you don't `cd`, `source ./rvcmds.sh` errors. The wrapper does this for you; if you bypass the wrapper, you must do it yourself.
+5. **Always ask both step-1 questions** even if the user is already inside an OpenRV checkout. They may want a different ref or VFX year than last time.
+
 ## Operating principles
 
 1. **One step at a time.** Detect → report → confirm → act → verify. Do not chain installs. If something fails, stop and surface the actual error before retrying.
 2. **Idempotent.** Every script in `scripts/` can be re-run safely. If the user re-invokes the skill mid-flow, re-run the relevant check rather than assuming prior state.
 3. **Honor the automation level.** The user picks one at the start (see §Modes). Do not silently escalate.
 4. **Don't invent versions, package names, or flags.** All hard data lives in `scripts/` and `platforms/<os>.md`. If a script reports something you don't recognize, ask the user rather than guessing.
-5. **Surface the OpenRV build wrapper, don't replace it.** The actual build is `source rvcmds.sh && rvbootstrap`. The skill's job is environment, dependencies, and pacing — not reimplementing the build.
+5. **Surface the OpenRV build wrapper, don't replace it.** The actual build is `scripts/run-bootstrap.sh`, which sources `rvcmds.sh` and runs `rvbootstrap`. The skill's job is environment, dependencies, and pacing — not reimplementing the build.
 
 ## Directory layout
 
@@ -23,6 +33,7 @@ You are guiding a user through compiling OpenRV. This is a long process (~30-90 
 - `scripts/check-prereqs-{macos,linux,windows}.sh` — emit NDJSON, one record per requirement: `{requirement, min_version, found_version, status, install_hint}`. `status` is `installed`, `auto-installable`, or `manual-only`.
 - `scripts/install-deps-{macos,linux,windows}.sh` — install everything auto-installable. Accepts `--only <name>` to install one item, or `--elevated` to skip per-step confirmations (only pass this when the user is in fully-autonomous mode).
 - `scripts/install-qt.sh` — headless Qt 6.5.3 install via aqtinstall. Prints resolved `QT_HOME` on stdout.
+- `scripts/run-bootstrap.sh <openrv_dir> <vfx_year> [<qt_home>] [<build_type>]` — the **only** correct way to invoke `rvbootstrap`. Handles cd, env vars, alias expansion, foreground, and logging. Step 6 calls this.
 - `scripts/open-installer.sh <url-or-path>` — opens a URL or file in the default handler (auto-open mode only).
 - `platforms/macos.md`, `platforms/linux.md`, `platforms/windows.md` — per-platform manual-step playbooks. Read the relevant one once you know the OS.
 
@@ -106,24 +117,23 @@ For each `manual-only` requirement, look up the playbook in `platforms/<os>.md` 
 
 Once the prereq checker reports zero `auto-installable` and zero `manual-only`, you're ready.
 
-**Critical rules — violating any of these will produce a confused, broken run:**
+**Call the wrapper script. Do not assemble the bash invocation by hand.** The five mistakes the model has historically made (no `cd`, missing `RV_VFX_PLATFORM`, backgrounded, alias-not-expanded, prompt-piped) are all handled by `scripts/run-bootstrap.sh`. Your job is to call it with the right arguments.
 
-1. **`cd` into the OpenRV checkout first.** `rvcmds.sh` is sourced relative to CWD. If you don't `cd` (or pass it via `bash -c 'cd <dir> && ...'`), `source ./rvcmds.sh` errors out.
-2. **Export `RV_VFX_PLATFORM` before sourcing `rvcmds.sh`.** Use the year from step 1b. Without this, `rvcmds.sh` will print a `select` menu on stdout and block on stdin reading 1/2/3/4.
-3. **Run in the FOREGROUND.** Do NOT background it (`&`), do NOT redirect stdout to a file unless you also `tee` so streaming output is visible, do NOT close stdin. `rvbootstrap` may emit additional prompts (license accepts, branch confirmations on dirty trees) and a stranded stdin produces an infinite-loop log file.
-4. **Do not run it in a Bash tool with `run_in_background: true`.** Same reason as (3). If the user wants a log, use `tee`:
+Arguments:
+1. `<openrv_dir>` — the absolute path from step 1a.
+2. `<vfx_year>` — the choice from step 1b (`CY2023`, `CY2024`, `CY2025`, or `CY2026`).
+3. `<qt_home>` (optional) — only pass this if you installed Qt 6.8 separately for CY2026 (see step 4 Qt note). Otherwise leave it off; the script lets `rvcmds.sh` find Qt at the default location.
+4. `<build_type>` (optional) — `Release` (default) or `Debug`.
 
-The exact command, assembled from the user's choices in step 1:
+Invoke it. **Foreground only — do not pass `run_in_background: true` to the Bash tool.** If you want to give the user a log, the script already tees to `<openrv_dir>/build.log`; you don't need to add your own redirect.
 
 ```bash
-cd <openrv_dir> && export RV_VFX_PLATFORM=CY<YEAR> && source ./rvcmds.sh && rvbootstrap 2>&1 | tee build.log
+${CLAUDE_PLUGIN_ROOT}/skills/build-openrv/scripts/run-bootstrap.sh <openrv_dir> CY<YEAR>
 ```
-
-Substitute `<openrv_dir>` with the absolute path from step 1a, and `CY<YEAR>` with the choice from step 1b.
 
 This is the OpenRV build wrapper. It handles: configure, dependency download/build, OpenRV build, and packaging. It is verbose and slow; surface meaningful events (started X, finished X, failed at Y) rather than every line. Typical wall-clock is 30-90 minutes on a warm cache, several hours from cold.
 
-If `rvbootstrap` fails, the actionable info is almost always in the last 50-100 lines of its output (or `build.log`). Show those, name the failing component, and consult `platforms/<os>.md` for known gotchas before suggesting a retry.
+If `run-bootstrap.sh` exits non-zero, the actionable info is in `<openrv_dir>/build.log` (the script printed the path on exit). Show the last 50-100 lines, name the failing component, and consult `platforms/<os>.md` for known gotchas before suggesting a retry. For a quick triage, the user can also run `rverrsummary` inside an interactive shell after `cd <openrv_dir> && source ./rvcmds.sh`.
 
 ### 7. Verify
 
