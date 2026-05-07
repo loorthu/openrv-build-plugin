@@ -9,6 +9,6 @@ description: Run the OpenRV prerequisites check and report the status. Does not 
    - **Auto-installable** — list with the `install_hint` for each.
    - **Manual-only** — list with the `install_hint` and a one-line note pointing at `platforms/<os>.md` for the playbook.
 
-Do not install anything. Do not call any of the `install-deps-*.sh` scripts. End with: "Run `/openrv:install-deps` to auto-install the green items, or `/openrv:build` for the full guided flow."
+Do not install anything. Do not call any of the `install-deps-*.sh` scripts. End with: "Run `/openrv-build:install-deps` to auto-install the green items, or `/openrv-build:build` for the full guided flow."
 
 User extra args: $ARGUMENTS

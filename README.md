@@ -37,7 +37,7 @@ Open Claude Code. In the chat, type each of these one at a time and press Enter:
 
 (Yes, `openrv-build@openrv-build` looks odd. The first is the plugin name; the second is the marketplace name. They happen to be the same.)
 
-**3. Reload plugins.** Required after install — without this, the `/openrv:*` commands won't show up.
+**3. Reload plugins.** Required after install — without this, the `/openrv-build:*` commands won't show up.
 
 ```
 /reload-plugins
@@ -46,7 +46,7 @@ Open Claude Code. In the chat, type each of these one at a time and press Enter:
 **4. Start the guided build.**
 
 ```
-/openrv:build
+/openrv-build:build
 ```
 
 That's it. From this point Claude will:
@@ -67,7 +67,7 @@ You can answer Claude's questions in normal English. You don't need to type comm
 ## What if something goes wrong?
 
 - **You can stop at any time** by pressing Ctrl+C or just closing Claude Code. Nothing will be left in a broken state.
-- **You can resume later** by running `/openrv:build` again. Claude will check what's already done and pick up from there.
+- **You can resume later** by running `/openrv-build:build` again. Claude will check what's already done and pick up from there.
 - **If a step fails**, Claude will show you the actual error and stop. It will not silently skip or pretend things worked.
 
 If you get truly stuck, the plugin's GitHub issues page is the right place to ask: https://github.com/loorthu/openrv-build-plugin/issues — paste the error Claude showed you and the OS you're on.
@@ -76,14 +76,16 @@ If you get truly stuck, the plugin's GitHub issues page is the right place to as
 
 ## Other commands (optional)
 
-You almost certainly only need `/openrv:build`. These are escape hatches for advanced users:
+You almost certainly only need `/openrv-build:build`. These are escape hatches for advanced users:
 
 | Command                  | What it does |
 |--------------------------|--------------|
-| `/openrv:build`          | The full guided flow above. **Use this one.** |
-| `/openrv:check`          | Just check what's installed and what's missing. No installs. |
-| `/openrv:install-deps`   | Install everything that can be installed automatically; surface a list of anything that needs you. |
-| `/openrv:bootstrap`      | Skip checks and run the OpenRV build directly. Only useful if you've already gone through the full flow once. |
+| `/openrv-build:build`          | The full guided flow above. **Use this one.** |
+| `/openrv-build:check`          | Just check what's installed and what's missing. No installs. |
+| `/openrv-build:install-deps`   | Install everything that can be installed automatically; surface a list of anything that needs you. |
+| `/openrv-build:bootstrap`      | Skip checks and run the OpenRV build directly. Only useful if you've already gone through the full flow once. |
+
+You may also see **`/build-openrv`** in the command palette. That's the underlying skill — it does the same thing as `/openrv-build:build`. Both are valid; pick whichever you remember more easily.
 
 You can also just say "help me build OpenRV" in plain English and Claude will start the guided flow.
 
