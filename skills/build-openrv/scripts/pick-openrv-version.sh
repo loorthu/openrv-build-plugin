@@ -59,6 +59,58 @@ PY
       fi
     fi
 
+    # Windows path-length pre-flight. The build tree nests ~150-200 chars deep
+    # under <target>; total path must stay under Windows' legacy 260-byte
+    # MAX_PATH limit (254 usable per OpenRV docs/build_system/config_windows.md).
+    # Refuse to clone into a target that's already too long — the build will
+    # fail in PySide6 hours from now and the user will have to move it anyway.
+    case "$(uname -s 2>/dev/null)" in
+      MINGW*|MSYS*|CYGWIN*)
+        # Convert target to Windows form for accurate character count.
+        win_target="$( (cd "$(dirname "$target")" 2>/dev/null && pwd -W 2>/dev/null) || echo "$target" )"
+        if [ -n "$win_target" ] && [ "$win_target" != "$target" ]; then
+          win_target="$win_target/$(basename "$target")"
+        else
+          win_target="$target"
+        fi
+        # Strip MSYS-style /c/ prefix for length calc if pwd -W wasn't available
+        case "$win_target" in
+          /[a-zA-Z]/*)
+            d="${win_target#/}"; d="${d%%/*}"
+            rest="${win_target#/[a-zA-Z]}"
+            win_target="${d}:${rest}"
+            ;;
+        esac
+        path_len=${#win_target}
+        case "$win_target" in
+          [A-Za-z]:[/\\]*) is_drive_path="yes" ;;
+          *)               is_drive_path="no"  ;;
+        esac
+        if [ "$is_drive_path" = "no" ] || [ "$path_len" -gt 40 ]; then
+          cat >&2 <<EOF
+
+[pick-openrv-version] Refusing to prepare OpenRV checkout at:
+  $win_target ($path_len chars)
+
+Windows has a 254-byte path-length limit. OpenRV's build tree nests
+150-200 chars deep, so the checkout path itself must be short — ideally
+on a drive root like C:\\OpenRV (9 chars). If we cloned here, the build
+would fail in PySide6 with 'cannot open file ... too long' hours from
+now and you'd have to move it anyway.
+
+Re-run with an explicit short target:
+  pick-openrv-version.sh prepare $ref C:\\OpenRV
+
+Or close this shell, launch a new MSYS2 MinGW64 shell with 'cd /c' (or
+your chosen short root), and start Claude Code from there before re-running
+/openrv-build:build.
+
+EOF
+          exit 4
+        fi
+        ;;
+    esac
+
     if [ -f "$target/rvcmds.sh" ]; then
       echo "[pick-openrv-version] Existing checkout at $target — fetching and checking out $ref" >&2
       git -C "$target" fetch --tags --recurse-submodules origin

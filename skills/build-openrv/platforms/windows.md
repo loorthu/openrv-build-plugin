@@ -18,13 +18,38 @@ If the user is on a managed corporate machine that blocks UAC elevation, they'll
 
 ### Repo path under a drive root
 
-Windows still has a default 260-character path limit (`MAX_PATH`). OpenRV's third-party builds nest deep enough that anything beyond `C:\OpenRV\<short-subdir>` will fail mid-build with cryptic file-not-found errors.
+Windows has a 254-byte usable path limit (the legacy `MAX_PATH` is 260 bytes; per [OpenRV's own docs](https://github.com/AcademySoftwareFoundation/OpenRV/blob/main/docs/build_system/config_windows.md#windows-specific-build-notes), 254 is the practical limit). OpenRV's build tree nests ~150-200 characters deep under the checkout root (the worst offender is `_build/RV_DEPS_PYSIDE6/src/RV_DEPS_PYSIDE6-build/<module>/...`). To leave headroom, the checkout path itself must be short.
 
-The prereq checker classifies this as `manual-only` because moving the checkout is a user action. **Walk the user through this:**
+**Failure signature** (so the skill can recognize this when triaging build logs):
+- `error: cannot open output file ... : File name too long`
+- `error C1083: Cannot open ... 'pyside6/...': No such file or directory` (after a long path was truncated mid-write)
+- Failure typically lands in PySide6 binding compile, ~40-60% into the cold build.
 
-1. If the checkout is currently under e.g. `C:\Users\<name>\Documents\GitHub\OpenRV`, tell them: "Windows path-length limits will break this build. Please close any editors/terminals with files open under the current OpenRV checkout, then move it to `C:\OpenRV` (or any short path under a drive root)."
-2. After they move, they need to re-launch Claude Code from inside the new path. The session's CWD doesn't follow.
-3. Long-path support via the registry (`LongPathsEnabled`) helps for some operations but does not fully fix the problem — many OpenRV third-party builds use legacy CRT functions that ignore it. Don't recommend it as a workaround.
+**Plugin enforcement:**
+
+| Where | What it does |
+|-------|---|
+| `check-prereqs-windows.sh` (`repo_path` record) | Counts characters in the absolute Windows-form path. ≤ 40 chars = `installed`. 41-60 = `manual-only` (risky). > 60 = `manual-only` (will fail). Also rejects non-drive-root paths. |
+| `check-prereqs-windows.sh` (`long_paths_enabled` record) | Probes `HKLM\SYSTEM\CurrentControlSet\Control\FileSystem\LongPathsEnabled`. Informational only — does not change pass/fail because most OpenRV third-party builds use legacy CRT and ignore the flag. |
+| `pick-openrv-version.sh prepare` | On Windows, refuses to clone into a target dir > 40 chars or not under a drive root. Exits with code 4 and a clear message recommending `C:\OpenRV`. |
+
+**Recovery walkthrough** (when the prereq checker reports `repo_path: manual-only`):
+
+1. **Close any editor or terminal** with files open under the current OpenRV checkout. Open file handles will block the move.
+2. **Move the checkout in a fresh shell** (PowerShell or MSYS2):
+   ```
+   mv "C:\Users\<name>\Documents\GitHub\OpenRV" C:\OpenRV
+   ```
+   If the user has uncommitted changes, ask them to commit or stash first; `mv` preserves them but it's safer.
+3. **Re-launch Claude Code** from a new MSYS2 MinGW64 shell whose working directory is the new path:
+   ```
+   cd /c/OpenRV
+   claude  # or however the user launches Claude Code
+   ```
+   The previous session's CWD does *not* follow when you re-launch — this step is the most common source of "I moved it but it still says blocked".
+4. **Re-run** `/openrv-build:check` to verify `repo_path: installed`, then `/openrv-build:build`.
+
+**Don't suggest `LongPathsEnabled` as a fix.** It's tempting because it's a one-line registry edit, but OpenRV's third-party builds use legacy CRT functions (`_open`, `_stat64`) that ignore it. Enabling it may help *some* tools downstream and is fine for the user to enable separately, but it does not let you skip the move.
 
 ### winget itself
 

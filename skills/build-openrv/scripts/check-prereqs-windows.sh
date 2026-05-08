@@ -54,21 +54,35 @@ has_msvc_14_40() {
   ls "$tools_dir" 2>/dev/null | grep -q '^14\.40\.' && return 0 || return 1
 }
 
-# Path-length sanity: OpenRV must live under a drive root (e.g. C:\OpenRV)
+# Find the OpenRV checkout (if any) in or above CWD and return its absolute
+# Windows-form path. MSYS2's `pwd -W` converts /c/foo to C:\foo.
 check_repo_path() {
-  local p
-  p="$(pwd -W 2>/dev/null || pwd)"
-  # If we're inside an OpenRV checkout, check its absolute Windows path length.
-  local probe="$p"
+  local probe
+  probe="$(pwd -W 2>/dev/null || pwd)"
   while [ "$probe" != "/" ] && [ "$probe" != "" ]; do
     if [ -f "$probe/rvcmds.sh" ]; then
-      local win
-      win="$(cd "$probe" && pwd -W 2>/dev/null || cd "$probe" && pwd)"
-      echo "$win"
+      (cd "$probe" && pwd -W 2>/dev/null || (cd "$probe" && pwd))
       return
     fi
     probe="$(dirname "$probe")"
   done
+}
+
+# Probe the Windows registry for the LongPathsEnabled flag. With this enabled
+# (DWORD = 1 at HKLM\SYSTEM\CurrentControlSet\Control\FileSystem) the OS lifts
+# the legacy 260-byte MAX_PATH limit for tools that opt in via manifest. Most
+# OpenRV third-party builds do NOT opt in (they use legacy CRT functions), so
+# this is informational only — it does not change our pass/fail threshold,
+# but knowing it's off is useful when triaging "file name too long" errors.
+probe_long_paths_enabled() {
+  local val
+  val="$(reg query 'HKLM\SYSTEM\CurrentControlSet\Control\FileSystem' //v LongPathsEnabled 2>/dev/null \
+         | grep -oE '0x[0-9a-fA-F]+' | head -1)"
+  case "$val" in
+    0x1|0x00000001) echo "enabled" ;;
+    0x0|0x00000000) echo "disabled" ;;
+    *)              echo "unknown" ;;
+  esac
 }
 
 # --- emit -----------------------------------------------------------------
@@ -170,21 +184,52 @@ else
   emit "qt" "6.5.3" "__NULL__" "auto-installable" "Headless install via aqtinstall: install-qt.sh"
 fi
 
-# Repo path length
+# Repo path length. Windows has a legacy 260-byte MAX_PATH limit (254 usable
+# per OpenRV docs/build_system/config_windows.md). The build tree nests deep:
+# _build/RV_DEPS_PYSIDE6/src/RV_DEPS_PYSIDE6-build/<module>/... is easily
+# 150-200 chars on its own. To leave headroom, the checkout path itself
+# should be <= 40 chars; we hard-fail above 60. OpenRV docs explicitly
+# recommend cloning to a drive root (e.g. C:\OpenRV).
 repo_path="$(check_repo_path)"
 if [ -n "$repo_path" ]; then
-  # Heuristic: must be under a drive root with short total path (<= 30 chars before subdirs)
+  path_len=${#repo_path}
+  hint_recovery="Recovery: (1) close any editor/terminal with files open under the current checkout, (2) in a fresh shell run \`mv \"$repo_path\" C:\\\\OpenRV\` (or use Explorer to move it), (3) close this MSYS2 MinGW64 shell and Claude Code, (4) launch a new MSYS2 MinGW64 shell with \`cd C:\\\\OpenRV\` and start Claude Code from there, (5) re-run /openrv-build:build."
+
   case "$repo_path" in
-    [A-Z]:[/\\]OpenRV*|[A-Z]:[/\\]openrv*|[A-Z]:[/\\][A-Za-z0-9_-]*)
-      depth="$(echo "$repo_path" | tr '/\\' '\n' | grep -cv '^$')"
-      if [ "$depth" -le 3 ]; then
-        emit "repo_path" "" "$repo_path" "installed" "Repo path is short enough"
-      else
-        emit "repo_path" "" "$repo_path" "manual-only" "Move OpenRV checkout to a drive root (e.g. C:\\OpenRV) — current path will exceed Windows path-length limits during build"
-      fi
-      ;;
-    *)
-      emit "repo_path" "" "$repo_path" "manual-only" "Move OpenRV checkout to a drive root (e.g. C:\\OpenRV) to avoid path-length errors"
-      ;;
+    [A-Z]:[/\\]*) is_drive_path="yes" ;;
+    *)            is_drive_path="no"  ;;
   esac
+
+  if [ "$is_drive_path" = "no" ]; then
+    emit "repo_path" "" "$repo_path ($path_len chars)" "manual-only" \
+      "Repo is not on a Windows drive (got: $repo_path). The build needs a real Windows path under a drive root like C:\\\\OpenRV. $hint_recovery"
+  elif [ "$path_len" -le 40 ]; then
+    emit "repo_path" "" "$repo_path ($path_len chars)" "installed" \
+      "Repo path length OK ($path_len chars; <= 40 leaves enough headroom for the build tree's deep nesting)."
+  elif [ "$path_len" -le 60 ]; then
+    emit "repo_path" "" "$repo_path ($path_len chars)" "manual-only" \
+      "Repo path is RISKY ($path_len chars; threshold is 40). PySide6 compilation may fail with 'cannot open file: file name too long'. Recommended: move to C:\\\\OpenRV (9 chars). $hint_recovery"
+  else
+    emit "repo_path" "" "$repo_path ($path_len chars)" "manual-only" \
+      "Repo path is TOO LONG ($path_len chars; OpenRV's build tree nests ~150-200 chars deep, total would exceed Windows' 260-byte MAX_PATH limit). The build will fail in PySide6 with 'cannot open file ... too long'. Move to C:\\\\OpenRV. $hint_recovery"
+  fi
 fi
+
+# LongPathsEnabled (informational). Does NOT raise our pass/fail threshold —
+# OpenRV's third-party builds use legacy CRT functions that ignore it — but
+# its state helps explain "file name too long" failures during triage.
+lpe_state="$(probe_long_paths_enabled)"
+case "$lpe_state" in
+  enabled)
+    emit "long_paths_enabled" "" "enabled" "installed" \
+      "Windows LongPathsEnabled is ON. Helps modern tools but does NOT fully fix OpenRV builds — many third-party builds use legacy CRT and ignore this. Keep your repo path short anyway."
+    ;;
+  disabled)
+    emit "long_paths_enabled" "" "disabled" "installed" \
+      "Windows LongPathsEnabled is OFF (the default). Strict 260-byte MAX_PATH limit applies. Optional: enable via 'reg add HKLM\\\\SYSTEM\\\\CurrentControlSet\\\\Control\\\\FileSystem /v LongPathsEnabled /t REG_DWORD /d 1 /f' (admin shell). Does not replace the requirement to keep the repo path short."
+    ;;
+  *)
+    emit "long_paths_enabled" "" "unknown" "installed" \
+      "Could not probe LongPathsEnabled (reg query failed). Not blocking; informational only."
+    ;;
+esac
