@@ -155,7 +155,15 @@ echo "[run-bootstrap] ----- sourcing rvcmds.sh -----"
 # on a stranded stdin in a backgrounded shell. This makes the wrapper safe to
 # run with run_in_background: true (which is required because rvbootstrap can
 # take 2-4 hours and Claude Code's Bash tool has a 10-minute foreground cap).
-{ set +u; source ./rvcmds.sh && rvbootstrap; } </dev/null 2>&1 | tee "$log"
+#
+# `eval rvbootstrap` (not bare `rvbootstrap`): bash expands aliases at PARSE
+# time, and the entire `{ ... }` group is one parse unit. By the time bash
+# parses `rvbootstrap`, the alias hasn't yet been defined by `source`, so it
+# would resolve as a literal command name -> "command not found". eval
+# re-parses its argument as a fresh command line, by which point the alias
+# is in scope. shopt -s expand_aliases (set above) is required for eval to
+# expand aliases in non-interactive bash.
+{ set +u; source ./rvcmds.sh && eval rvbootstrap; } </dev/null 2>&1 | tee "$log"
 status=${PIPESTATUS[0]}
 
 echo
