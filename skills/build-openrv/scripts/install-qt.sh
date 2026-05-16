@@ -7,14 +7,17 @@
 # installs into ~/Qt by default to match the documented layout.
 #
 # Usage:
-#   install-qt.sh [--version 6.5.3] [--modules qtwebengine,qtwebsockets,qtmultimedia,qtdeclarative,qtwebchannel,qtpositioning] [--dest ~/Qt]
+#   install-qt.sh [--version 6.5.3] [--modules qtwebengine,qtwebsockets,qtmultimedia,qtwebchannel,qtpositioning] [--dest ~/Qt]
 #
 # After completion prints the resolved QT_HOME path on stdout (suitable for `export QT_HOME=$(install-qt.sh ...)`).
+#
+# Note: qtdeclarative is intentionally NOT in the default modules — for Qt 6.5.3
+# it is part of base Qt, not a selectable add-on, and aqt rejects it.
 
 set -euo pipefail
 
 version="6.5.3"
-modules="qtwebengine,qtwebsockets,qtmultimedia,qtdeclarative,qtwebchannel,qtpositioning,qtimageformats,qt5compat"
+modules="qtwebengine,qtwebsockets,qtmultimedia,qtwebchannel,qtpositioning,qtimageformats,qt5compat"
 dest="$HOME/Qt"
 
 while [ $# -gt 0 ]; do

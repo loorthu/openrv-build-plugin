@@ -132,10 +132,15 @@ else
 fi
 
 # CMake 3.31+
+# Note: avoid python's `packaging` module — it isn't in the stdlib and would
+# silently fail-closed if missing, flagging any installed CMake as too old.
+ver_ge() {
+  [ "$1" = "$2" ] && return 0
+  [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n1)" = "$2" ]
+}
 cm_v="$(ver_cmake)"
 if [ -n "$cm_v" ]; then
-  ok="$(python -c "from packaging.version import Version; print('y' if Version('$cm_v') >= Version('3.31.0') else 'n')" 2>/dev/null || echo unknown)"
-  if [ "$ok" = "y" ]; then
+  if ver_ge "$cm_v" "3.31.0"; then
     emit "cmake" "3.31.0" "$cm_v" "installed" "CMake $cm_v"
   else
     emit "cmake" "3.31.0" "$cm_v" "auto-installable" "choco upgrade -y cmake (or winget upgrade Kitware.CMake)"

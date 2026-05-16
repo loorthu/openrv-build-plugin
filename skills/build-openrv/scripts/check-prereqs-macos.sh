@@ -158,11 +158,15 @@ else
 fi
 
 # CMake (must be 3.31+; brew's may be too old, but we still try brew first)
+# Note: avoid python's `packaging` module — it isn't in the stdlib and would
+# silently fail-closed if missing, flagging any installed CMake as too old.
+ver_ge() {
+  [ "$1" = "$2" ] && return 0
+  [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n1)" = "$2" ]
+}
 cm_v="$(ver_cmake)"
 if [ -n "$cm_v" ]; then
-  # Compare to 3.31.0
-  ok="$(python3 -c "from packaging.version import Version; print('y' if Version('$cm_v') >= Version('3.31.0') else 'n')" 2>/dev/null || echo 'unknown')"
-  if [ "$ok" = "y" ]; then
+  if ver_ge "$cm_v" "3.31.0"; then
     emit "cmake" "3.31.0" "$cm_v" "installed" "CMake $cm_v"
   else
     emit "cmake" "3.31.0" "$cm_v" "auto-installable" "brew install cmake (or upgrade: brew upgrade cmake)"

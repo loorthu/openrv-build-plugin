@@ -123,10 +123,11 @@ fi
 # Core devel packages (dnf names; mapped from docs/build_system/config_linux_rocky89.md)
 DEVEL_PKGS=(
   alsa-lib-devel autoconf automake avahi-compat-libdns_sd-devel bison bzip2-devel
-  cmake-gui curl-devel flex gcc gcc-c++ git libXcomposite libXi-devel libaio-devel
-  libffi-devel nasm ncurses-devel nss libtool libxkbcommon libXdamage libXrandr
-  libXtst libXcursor mesa-libOSMesa mesa-libOSMesa-devel meson openssl-devel patch
-  pulseaudio-libs pulseaudio-libs-glib2 ocl-icd ocl-icd-devel opencl-headers
+  cmake-gui libcurl-devel flex gcc gcc-c++ git libXcomposite libXi-devel libaio-devel
+  libffi-devel nasm ncurses-devel nss libtool libxkbcommon libxkbcommon-devel
+  libXdamage libXrandr libXtst libXcursor mesa-libGLU-devel mesa-libOSMesa
+  mesa-libOSMesa-devel meson openssl-devel patch pulseaudio-libs
+  pulseaudio-libs-glib2 ocl-icd ocl-icd-devel opencl-headers
   qt5-qtbase-devel readline-devel sqlite-devel systemd-devel tcl-devel tcsh tk-devel
   yasm zip zlib-devel wget patchelf pcsc-lite libxkbfile perl-IPC-Cmd
 )
@@ -146,8 +147,8 @@ elif [ "$PKG" = "apt" ]; then
            libssl-dev libreadline-dev libsqlite3-dev libffi-dev libbz2-dev \
            libncurses-dev libxkbcommon-dev libxcomposite-dev libxdamage-dev \
            libxrandr-dev libxtst-dev libxcursor-dev libosmesa6-dev libxkbfile-dev \
-           libxi-dev libpulse-dev libavahi-compat-libdnssd-dev qtbase5-dev \
-           tcl-dev tk-dev meson ninja-build patchelf pkg-config wget; do
+           libxi-dev libpulse-dev libavahi-compat-libdnssd-dev libglu1-mesa-dev \
+           qtbase5-dev tcl-dev tk-dev meson ninja-build patchelf pkg-config wget; do
     if apt_pkg_installed "$p"; then
       emit "apt:$p" "" "installed" "installed" "$p"
     else
@@ -179,10 +180,16 @@ else
 fi
 
 # CMake 3.31+
+# Note: avoid python's `packaging` module — it isn't in the stdlib and isn't
+# present on a fresh Rocky/RHEL system, which would silently fail-closed and
+# flag any installed CMake as too old. `sort -V` is in coreutils everywhere.
+ver_ge() {
+  [ "$1" = "$2" ] && return 0
+  [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n1)" = "$2" ]
+}
 cm_v="$(ver_cmake)"
 if [ -n "$cm_v" ]; then
-  ok="$(python3 -c "from packaging.version import Version; print('y' if Version('$cm_v') >= Version('3.31.0') else 'n')" 2>/dev/null || echo 'unknown')"
-  if [ "$ok" = "y" ]; then
+  if ver_ge "$cm_v" "3.31.0"; then
     emit "cmake" "3.31.0" "$cm_v" "installed" "CMake $cm_v"
   else
     emit "cmake" "3.31.0" "$cm_v" "auto-installable" "Build CMake 3.31 from source (distro repos are too old)"

@@ -64,13 +64,18 @@ apt_install() {
 }
 
 enable_rocky_repos() {
+  # epel-release must land in its own transaction before any EPEL-only packages
+  # (patchelf, ccache) appear in a later install list — otherwise dnf can't
+  # resolve them and aborts the whole transaction.
   case "$distro_major" in
     8)
       $SUDO dnf -y install dnf-plugins-core || true
+      $SUDO dnf -y install epel-release || true
       $SUDO dnf config-manager --set-enabled powertools devel || true
       ;;
     9)
       $SUDO dnf -y install dnf-plugins-core perl-CPAN || true
+      $SUDO dnf -y install epel-release || true
       $SUDO dnf config-manager --set-enabled crb devel || true
       ;;
   esac
@@ -139,13 +144,13 @@ fi
 # Big -devel package list
 DEVEL_PKGS_DNF=(
   alsa-lib-devel autoconf automake avahi-compat-libdns_sd-devel bison bzip2-devel
-  cmake-gui curl-devel flex gcc gcc-c++ git libXcomposite libXi-devel libaio-devel
-  libffi-devel nasm ncurses-devel nss libtool libxkbcommon libXdamage libXrandr
-  libXtst libXcursor mesa-libOSMesa mesa-libOSMesa-devel meson openssl-devel patch
-  pulseaudio-libs pulseaudio-libs-glib2 ocl-icd ocl-icd-devel opencl-headers
+  cmake-gui libcurl-devel flex gcc gcc-c++ git libXcomposite libXi-devel libaio-devel
+  libffi-devel nasm ncurses-devel nss libtool libxkbcommon libxkbcommon-devel
+  libXdamage libXrandr libXtst libXcursor mesa-libGLU-devel mesa-libOSMesa
+  mesa-libOSMesa-devel meson openssl-devel patch pulseaudio-libs
+  pulseaudio-libs-glib2 ocl-icd ocl-icd-devel opencl-headers
   qt5-qtbase-devel readline-devel sqlite-devel systemd-devel tcl-devel tcsh tk-devel
-  yasm zip zlib-devel wget patchelf pcsc-lite libxkbfile perl-IPC-Cmd ccache wget
-  epel-release
+  yasm zip zlib-devel wget patchelf pcsc-lite libxkbfile perl-IPC-Cmd ccache
 )
 
 DEVEL_PKGS_APT=(
@@ -153,8 +158,8 @@ DEVEL_PKGS_APT=(
   libssl-dev libreadline-dev libsqlite3-dev libffi-dev libbz2-dev
   libncurses-dev libxkbcommon-dev libxcomposite-dev libxdamage-dev
   libxrandr-dev libxtst-dev libxcursor-dev libosmesa6-dev libxkbfile-dev
-  libxi-dev libpulse-dev libavahi-compat-libdnssd-dev qtbase5-dev
-  tcl-dev tk-dev meson ninja-build patchelf pkg-config wget ccache
+  libxi-dev libpulse-dev libavahi-compat-libdnssd-dev libglu1-mesa-dev
+  qtbase5-dev tcl-dev tk-dev meson ninja-build patchelf pkg-config wget ccache
 )
 
 if [ "$PKG" = "dnf" ]; then
